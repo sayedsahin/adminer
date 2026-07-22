@@ -16,7 +16,7 @@ if (isset($_GET["elastic"])) {
 			 * @return array|false
 			 */
 			function rootQuery($path, $content = null, $method = 'GET') {
-				$file = @file_get_contents("$this->url/" . ltrim($path, '/'), false, stream_context_create(array(
+				list($file, $status) = get_url("$this->url/" . ltrim($path, '/'), stream_context_create(array(
 					//~ 'ssl' => array('verify_peer' => false), // Elasticsearch responses in over 4 s on https://localhost:9200 without this line for me
 					'http' => array(
 						'method' => $method,
@@ -39,7 +39,7 @@ if (isset($_GET["elastic"])) {
 					return false;
 				}
 
-				if (!preg_match('~^HTTP/[0-9.]+ 2~i', $http_response_header[0])) {
+				if ($status[0] != 2) {
 					if (isset($return['error']['root_cause'][0]['type'])) {
 						$this->error = $return['error']['root_cause'][0]['type'] . ": " . $return['error']['root_cause'][0]['reason'];
 					} elseif (isset($return['status']) && isset($return['error']) && is_string($return['error'])) {
@@ -408,6 +408,11 @@ if (isset($_GET["elastic"])) {
 		return $table_status["Engine"] == "view";
 	}
 
+	function view(string $name): array {
+		$return = connection()->rootQuery("_alias/" . urlencode($name));
+		return array("select" => implode("\n", array_keys($return)));
+	}
+
 	function error() {
 		return h(connection()->error);
 	}
@@ -529,15 +534,18 @@ if (isset($_GET["elastic"])) {
 		}
 	}
 
-	/** Drop types
-	 * @param list<string> $tables
-	 */
+	function drop_views(array $tables): bool {
+		$return = connection()->rootQuery('_aliases', array('actions' => array_map(function ($table) {
+			return array('remove' => array('index' => '*', 'alias' => $table));
+		}, $tables)), 'POST');
+		return $return && !$return['errors'];
+	}
+
 	function drop_tables(array $tables): bool {
 		$return = true;
 		foreach ($tables as $table) { //! convert to bulk api
 			$return = $return && connection()->rootQuery(urlencode($table), null, 'DELETE');
 		}
-
 		return $return;
 	}
 

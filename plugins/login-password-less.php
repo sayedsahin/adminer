@@ -12,7 +12,7 @@ class AdminerLoginPasswordLess extends Adminer\Plugin {
 	/** Set allowed password
 	* @param string $password_hash result of password_hash()
 	*/
-	function __construct(string $password_hash) {
+	function __construct($password_hash) {
 		$this->password_hash = $password_hash;
 	}
 
@@ -33,5 +33,6 @@ class AdminerLoginPasswordLess extends Adminer\Plugin {
 		'pl' => array('' => 'Włącz logowanie bez hasła'),
 		'ro' => array('' => 'Activați autentificarea fără parolă'),
 		'ja' => array('' => 'パスワードなしのログインを許可'),
+		'hr' => array('' => 'Omogućuje prijavu bez lozinke'),
 	);
 }

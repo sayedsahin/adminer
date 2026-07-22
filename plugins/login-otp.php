@@ -12,7 +12,7 @@ class AdminerLoginOtp extends Adminer\Plugin {
 	/**
 	* @param string $secret decoded secret, e.g. base64_decode("SECRET")
 	*/
-	function __construct(string $secret) {
+	function __construct($secret) {
 		$this->secret = $secret;
 		if ($_POST["auth"]) {
 			$_SESSION["otp"] = (string) $_POST["auth"]["otp"];
@@ -74,6 +74,11 @@ class AdminerLoginOtp extends Adminer\Plugin {
 		),
 		'ja' => array(
 			'' => 'ログイン時にワンタイムパスワード (二要素認証) が必要',
+		),
+		'hr' => array(
+			'' => 'Jednokratna lozinka (dvofaktorska autentifikacija) potrebna pri prijavi',
+			'One Time Password' => 'Jednokratna lozinka',
+			'Invalid OTP.' => 'Nevažeća jednokratna lozinka.',
 		),
 	);
 }

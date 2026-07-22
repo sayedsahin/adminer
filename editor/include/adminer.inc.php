@@ -59,6 +59,9 @@ class Adminer {
 		return 5;
 	}
 
+	function afterConnect() {
+	}
+
 	function headers() {
 	}
 
@@ -91,7 +94,8 @@ class Adminer {
 
 	function loginForm() {
 		echo "<table class='layout'>\n";
-		echo adminer()->loginFormField('username', '<tr><th>' . lang('Username') . '<td>', input_hidden("auth[driver]", "server") . '<input name="auth[username]" autofocus value="' . h($_GET["username"]) . '" autocomplete="username" autocapitalize="off">');
+		echo adminer()->loginFormField('username', '<tr><th>' . lang('Username') . '<td>', input_hidden("auth[driver]", "server")
+			. '<input name="auth[username]" autofocus value="' . h($_GET["username"]) . '" autocomplete="username" autocapitalize="off">');
 		echo adminer()->loginFormField('password', '<tr><th>' . lang('Password') . '<td>', '<input type="password" name="auth[password]" autocomplete="current-password">');
 		echo "</table>\n";
 		echo "<p><input type='submit' value='" . lang('Login') . "'>\n";
@@ -109,8 +113,7 @@ class Adminer {
 	function tableName($tableStatus) {
 		return h(isset($tableStatus["Engine"])
 			? ($tableStatus["Comment"] != "" ? $tableStatus["Comment"] : $tableStatus["Name"])
-			: "" // ignore views
-		);
+			: ""); // ignore views
 	}
 
 	function fieldName($field, $order = 0) {
@@ -214,9 +217,9 @@ ORDER BY ORDINAL_POSITION", null, "") as $row
 	}
 
 	function selectVal($val, $link, $field, $original) {
-		$return = $val;
+		$return = "$val";
 		$link = h($link);
-		if (preg_match('~blob|bytea~', $field["type"]) && !is_utf8($val)) {
+		if (is_blob($field) && !is_utf8($val)) {
 			$return = lang('%d byte(s)', strlen($original));
 			if (preg_match("~^(GIF|\xFF\xD8\xFF|\x89PNG\x0D\x0A\x1A\x0A)~", $original)) { // GIF|JPG|PNG, getimagetype() works with filename
 				$return = "<img src='$link' alt='$return'>";
@@ -261,14 +264,14 @@ ORDER BY ORDINAL_POSITION", null, "") as $row
 		$fields = fields($_GET["select"]);
 		foreach ($columns as $name => $desc) {
 			$field = $fields[$name];
-			if (preg_match("~enum~", $field["type"]) || like_bool($field)) { //! set - uses 1 << $i and FIND_IN_SET()
+			if ($field["type"] == "enum" || like_bool($field)) { //! set - uses 1 << $i and FIND_IN_SET()
 				$key = $keys[$name];
 				$i--;
 				echo "<div>" . h($desc) . ":" . input_hidden("where[$i][col]", $name);
 				$val = idx($where[$key], "val");
 				echo (like_bool($field)
 					? "<select name='where[$i][val]'>" . optionlist(array("" => "", lang('no'), lang('yes')), $val, true) . "</select>"
-					: enum_input("checkbox", " name='where[$i][val][]'", $field, (array) $val, ($field["null"] ? 0 : null))
+					: enum_input("checkbox", " name='where[$i][val][]'", $field, (array) $val, lang('empty'))
 				);
 				echo "</div>\n";
 				unset($columns[$name]);
@@ -366,7 +369,13 @@ ORDER BY ORDINAL_POSITION", null, "") as $row
 					if ($col != "" || is_numeric($val) || !preg_match(number_type(), $field["type"])) {
 						$name = idf_escape($name);
 						if ($col != "" && $field["type"] == "enum") {
-							$conds[] = (in_array(0, $val) ? "$name IS NULL OR " : "") . "$name IN (" . implode(", ", array_map('Adminer\q', $val)) . ")";
+							$in = array();
+							foreach ($val as $val1) {
+								if (preg_match('~val-~', $val1)) {
+									$in[] = q(substr($val1, 4));
+								}
+							}
+							$conds[] = (in_array("null", $val) ? "$name IS NULL OR " : "") . ($in ? "$name IN (" . implode(", ", $in) . ")" : "0");
 						} else {
 							$text_type = preg_match('~char|text|enum|set~', $field["type"]);
 							$value = adminer()->processInput($field, (!$op && $text_type && preg_match('~^[^%]+$~', $val) ? "%$val%" : $val));
@@ -456,14 +465,14 @@ ORDER BY ORDINAL_POSITION", null, "") as $row
 
 	function editInput($table, $field, $attrs, $value) {
 		if ($field["type"] == "enum") {
-			return (isset($_GET["select"]) ? "<label><input type='radio'$attrs value='-1' checked><i>" . lang('original') . "</i></label> " : "")
-				. enum_input("radio", $attrs, $field, ($value || isset($_GET["select"]) ? $value : ""), ($field["null"] ? "" : null))
+			return (isset($_GET["select"]) ? "<label><input type='radio'$attrs value='orig' checked><i>" . lang('original') . "</i></label> " : "")
+				. enum_input("radio", $attrs, $field, $value, lang('empty'))
 			;
 		}
 		$options = $this->foreignKeyOptions($table, $field["field"], $value);
 		if ($options !== null) {
 			return (is_array($options)
-				? "<select$attrs>" . optionlist($options, $value, true) . "</select>"
+				? "<select$attrs>" . optionlist($options, (string) $value, true) . "</select>"
 				: "<input value='" . h($value) . "'$attrs class='hidden'>"
 					. "<input value='" . h($options) . "' class='jsonly'>"
 					. "<div></div>"
@@ -582,6 +591,8 @@ ORDER BY ORDINAL_POSITION", null, "") as $row
 			}
 		} else {
 			adminer()->databasesPrint($missing);
+			$actions = adminer()->menuActions(array(), $missing);
+			echo ($actions ? "<p class='links'>\n" . implode("\n", $actions) . "\n" : "");
 			if ($missing != "db" && $missing != "ns") {
 				$table_status = table_status('', true);
 				if (!$table_status) {
@@ -597,6 +608,10 @@ ORDER BY ORDINAL_POSITION", null, "") as $row
 	}
 
 	function databasesPrint($missing) {
+	}
+
+	function menuActions($actions, $missing) {
+		return $actions;
 	}
 
 	function tablesPrint($tables) {

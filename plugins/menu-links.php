@@ -21,12 +21,12 @@ class AdminerMenuLinks extends Adminer\Plugin {
 			'' => $this->lang('Both'),
 			'auto' => $this->lang('Auto (select on select page, structure otherwise)'),
 		);
-		$menu = Adminer\get_setting("menu", "adminer_config") ?: $this->menu;
+		$menu = Adminer\get_setting("menu", "adminer_config", $this->menu);
 		return array($this->lang('Menu table links') => Adminer\html_radios('config[menu]', $options, $menu, "<br>"));
 	}
 
 	function tablesPrint(array $tables) {
-		$menu = Adminer\get_setting("menu", "adminer_config") ?: $this->menu;
+		$menu = Adminer\get_setting("menu", "adminer_config", $this->menu);
 		$titles = array(
 			'select' => $this->lang('Select data'),
 			'table' => $this->lang('Show structure'),
@@ -111,6 +111,15 @@ class AdminerMenuLinks extends Adminer\Plugin {
 			'select' => '選択',
 			'Select data' => 'データ',
 			'Show structure' => '構造',
+		),
+		'hr' => array(
+			'' => 'Prikazuje veze na odabir podataka ili strukturu tablice u izborniku',
+			'Select data' => 'Odaberi podatke',
+			'Show structure' => 'Prikaži strukturu',
+			'Both' => 'Oboje',
+			'Auto (select on select page, structure otherwise)' => 'Automatski (odabir na stranici odabira, inače struktura)',
+			'Menu table links' => 'Veze tablice u izborniku',
+			'select' => 'odaberi',
 		),
 	);
 }

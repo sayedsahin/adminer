@@ -7,7 +7,7 @@
 * @license https://www.apache.org/licenses/LICENSE-2.0 Apache License, Version 2.0
 * @license https://www.gnu.org/licenses/gpl-2.0.html GNU General Public License, version 2 (one or other)
 */
-class AdminerMonaco extends Adminer\Plugin {
+class AdminerHighlightMonaco extends Adminer\Plugin {
 	private $root;
 
 	function __construct($root = "https://cdn.jsdelivr.net/npm/monaco-editor@0.52/min/vs") {
@@ -77,5 +77,6 @@ addEventListener('DOMContentLoaded', () => {
 		'de' => array('' => 'Monaco-Editor von VS Code verwenden, für die Syntaxhervorhebung und SQL <textarea>'),
 		'ja' => array('' => '構文や <textarea> の強調表示に VS Code の Monaco Editor を使用'),
 		'pl' => array('' => 'Użyj Monaco Editora programu VS Code do podświetlania składni i <textarea> SQL'),
+		'hr' => array('' => 'Koristi Monaco Editor iz VS Code za isticanje sintakse i SQL <textarea>'),
 	);
 }

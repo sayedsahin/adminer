@@ -85,6 +85,10 @@ class Adminer {
 		return 2;
 	}
 
+	/** Called after connecting and selecting a database */
+	function afterConnect(): void {
+	}
+
 	/** Headers to send before HTML output */
 	function headers(): void {
 	}
@@ -136,9 +140,10 @@ class Adminer {
 		echo "<table class='layout'>\n";
 		// this is matched by compile.php
 		echo adminer()->loginFormField('driver', '<tr><th>' . lang('System') . '<td>', html_select("auth[driver]", SqlDriver::$drivers, DRIVER, "loginDriver(this);"));
-		echo adminer()->loginFormField('server', '<tr><th>' . lang('Server') . '<td>', '<input name="auth[server]" value="' . h(SERVER) . '" title="hostname[:port]" placeholder="localhost" autocapitalize="off">');
+		echo adminer()->loginFormField('server', '<tr><th>' . lang('Server') . '<td>', '<input name="auth[server]" value="' . h(SERVER) . '" title="' . lang('hostname[:port] or :socket') . '" placeholder="localhost" autocapitalize="off">');
 		// this is matched by compile.php
-		echo adminer()->loginFormField('username', '<tr><th>' . lang('Username') . '<td>', '<input name="auth[username]" id="username" autofocus value="' . h($_GET["username"]) . '" autocomplete="username" autocapitalize="off">' . script("const authDriver = qs('#username').form['auth[driver]']; authDriver && authDriver.onchange();"));
+		echo adminer()->loginFormField('username', '<tr><th>' . lang('Username') . '<td>', '<input name="auth[username]" id="username" autofocus value="' . h($_GET["username"]) . '" autocomplete="username" autocapitalize="off">'
+			. script("const authDriver = qs('#username').form['auth[driver]']; authDriver && authDriver.onchange();"));
 		echo adminer()->loginFormField('password', '<tr><th>' . lang('Password') . '<td>', '<input type="password" name="auth[password]" autocomplete="current-password">');
 		echo adminer()->loginFormField('db', '<tr><th>' . lang('Database') . '<td>', '<input name="auth[db]" value="' . h($_GET["db"]) . '" autocapitalize="off">');
 		echo "</table>\n";
@@ -178,7 +183,7 @@ class Adminer {
 	* @return string HTML code, "" to ignore field
 	*/
 	function fieldName(array $field, int $order = 0): string {
-		$type = $field["full_type"];
+		$type = $field["full_type"] . ($field["null"] ? " NULL" : "");
 		$comment = $field["comment"];
 		return '<span title="' . h($type . ($comment != "" ? ($type ? ": " : "") . $comment : '')) . '">' . h($field["field"]) . '</span>';
 	}
@@ -198,8 +203,10 @@ class Adminer {
 		if (support("table")) {
 			$is_view = is_view($tableStatus);
 			if ($is_view) {
-				$links["view"] = lang('Alter view');
-			} else {
+				if (support("view")) {
+					$links["view"] = lang('Alter view');
+				}
+			} elseif (function_exists('Adminer\alter_table') && $name != "") {
 				$links["create"] = lang('Alter table');
 			}
 		}
@@ -282,7 +289,7 @@ class Adminer {
 
 	/** Get a link to use in select table
 	* @param string $val raw value of the field
-	* @param Field $field
+	* @param array{type: string} $field
 	* @return string|void null to create the default link
 	*/
 	function selectLink(?string $val, array $field) {
@@ -291,23 +298,23 @@ class Adminer {
 	/** Value printed in select table
 	* @param ?string $val HTML-escaped value to print
 	* @param ?string $link link to foreign key
-	* @param Field $field
+	* @param array{type: string, full_type?: string} $field
 	* @param string $original original value before applying editVal() and escaping
 	*/
 	function selectVal(?string $val, ?string $link, array $field, ?string $original): string {
 		$return = ($val === null ? "<i>NULL</i>"
 			: (preg_match("~char|binary|boolean~", $field["type"]) && !preg_match("~var~", $field["type"]) ? "<code>$val</code>"
-			: (preg_match('~json~', $field["type"]) ? "<code class='jush-js'>$val</code>"
+			: (preg_match('~^jsonb?$~', $field["full_type"]) ? "<code class='jush-js'>$val</code>"
 			: $val)
 		));
-		if (preg_match('~blob|bytea|raw|file~', $field["type"]) && !is_utf8($val)) {
+		if (is_blob($field) && !is_utf8($val)) {
 			$return = "<i>" . lang('%d byte(s)', strlen($original)) . "</i>";
 		}
 		return ($link ? "<a href='" . h($link) . "'" . (is_url($link) ? target_blank() : "") . ">$return</a>" : $return);
 	}
 
 	/** Value conversion used in select and edit
-	* @param Field $field
+	* @param array{type: string} $field
 	*/
 	function editVal(?string $val, array $field): ?string {
 		return $val;
@@ -419,7 +426,7 @@ class Adminer {
 				echo "<div>(<i>" . implode("</i>, <i>", array_map('Adminer\h', $index["columns"])) . "</i>) AGAINST";
 				echo " <input type='search' name='fulltext[$i]' value='" . h(idx($_GET["fulltext"], $i)) . "'>";
 				echo script("qsl('input').oninput = selectFieldChange;", "");
-				echo checkbox("boolean[$i]", 1, isset($_GET["boolean"][$i]), "BOOL");
+				echo (JUSH == 'sql' ? checkbox("boolean[$i]", 1, isset($_GET["boolean"][$i]), "BOOL") : '');
 				echo "</div>\n";
 			}
 		}
@@ -579,12 +586,14 @@ class Adminer {
 					} elseif (!preg_match('~NULL$~', $val["op"])) {
 						$cond .= " " . adminer()->processInput($field, $val["val"]);
 					}
-					if ($col != "" || ( // find anywhere
-						isset($field["privileges"]["where"])
-						&& (preg_match('~^[-\d.' . (preg_match('~IN$~', $val["op"]) ? ',' : '') . ']+$~', $val["val"]) || !preg_match('~' . number_type() . '|bit~', $field["type"]))
-						&& (!preg_match("~[\x80-\xFF]~", $val["val"]) || preg_match('~char|text|enum|set~', $field["type"]))
-						&& (!preg_match('~date|timestamp~', $field["type"]) || preg_match('~^\d+-\d+-\d+~', $val["val"]))
-					)) {
+					if (
+						$col != "" || ( // find anywhere
+							isset($field["privileges"]["where"])
+							&& (preg_match('~^[-\d.' . (preg_match('~IN$~', $val["op"]) ? ',' : '') . ']+$~', $val["val"]) || !preg_match('~' . number_type() . '|bit~', $field["type"]))
+							&& (!preg_match("~[\x80-\xFF]~", $val["val"]) || preg_match('~char|text|enum|set~', $field["type"]))
+							&& (!preg_match('~date|timestamp~', $field["type"]) || preg_match('~^\d+-\d+-\d+~', $val["val"]))
+						)
+					) {
 						$conds[] = $prefix . driver()->convertSearch(idf_escape($name), $val, $field) . $cond;
 					}
 				}
@@ -608,7 +617,7 @@ class Adminer {
 		foreach ((array) $_GET["order"] as $key => $val) {
 			if ($val != "") {
 				$return[] = (preg_match('~^((COUNT\(DISTINCT |[A-Z0-9_]+\()(`(?:[^`]|``)+`|"(?:[^"]|"")+")\)|COUNT\(\*\))$~', $val) ? $val : idf_escape($val)) //! MS SQL uses []
-					. (isset($_GET["desc"][$key]) ? " DESC" : "")
+					. (isset($_GET["desc"][$key]) ? " DESC" . (JUSH == 'pgsql' && idx($fields[$val], "null") ? " NULLS LAST" : "") : "")
 				;
 			}
 		}
@@ -664,13 +673,13 @@ class Adminer {
 		}
 		$history[$_GET["db"]][] = array($query, time(), $time); // not DB - $_GET["db"] is changed in database.inc.php //! respect $_GET["ns"]
 		$sql_id = "sql-" . count($history[$_GET["db"]]);
-		$return = "<a href='#$sql_id' class='toggle'>" . lang('SQL command') . "</a>\n";
+		$return = "<a href='#$sql_id' class='toggle'>" . lang('SQL command') . "</a> <a href='' class='jsonly copy'>🗐</a>\n";
 		if (!$failed && ($warnings = driver()->warnings())) {
 			$id = "warnings-" . count($history[$_GET["db"]]);
 			$return = "<a href='#$id' class='toggle'>" . lang('Warnings') . "</a>, $return<div id='$id' class='hidden'>\n$warnings</div>\n";
 		}
 		return " <span class='time'>" . @date("H:i:s") . "</span>" // @ - time zone may be not set
-			. " $return<div id='$sql_id' class='hidden'><pre><code class='jush-" . JUSH . "'>" . shorten_utf8($query, 1000) . "</code></pre>"
+			. " $return<div id='$sql_id' class='hidden'><pre><code class='jush-" . JUSH . "'>" . shorten_utf8($query, 1e4) . "</code></pre>"
 			. ($time ? " <span class='time'>($time)</span>" : '')
 			. (support("sql") ? '<p><a href="' . h(str_replace("db=" . urlencode(DB), "db=" . urlencode($_GET["db"]), ME) . 'sql=&history=' . (count($history[$_GET["db"]]) - 1)) . '">' . lang('Edit') . '</a>' : '')
 			. '</div>'
@@ -699,7 +708,7 @@ class Adminer {
 					}
 				}
 			}
-			if ($key && $functions && !preg_match('~set|blob|bytea|raw|file|bool~', $field["type"])) {
+			if ($key && $functions && !preg_match('~set|bool~', $field["type"]) && !is_blob($field)) {
 				$return .= "/SQL";
 			}
 		}
@@ -713,13 +722,13 @@ class Adminer {
 	* @param ?string $table null in call.inc.php
 	* @param Field $field
 	* @param string $attrs attributes to use inside the tag
+	* @param string|string[]|false|null $value false means original value
 	* @return string custom input field or empty string for default
 	*/
-	function editInput(?string $table, array $field, string $attrs, ?string $value): string {
+	function editInput(?string $table, array $field, string $attrs, $value): string {
 		if ($field["type"] == "enum") {
-			return (isset($_GET["select"]) ? "<label><input type='radio'$attrs value='-1' checked><i>" . lang('original') . "</i></label> " : "")
-				. ($field["null"] ? "<label><input type='radio'$attrs value=''" . ($value !== null || isset($_GET["select"]) ? "" : " checked") . "><i>NULL</i></label> " : "")
-				. enum_input("radio", $attrs, $field, $value, $value === 0 ? 0 : null) // 0 - empty value
+			return (isset($_GET["select"]) ? "<label><input type='radio'$attrs value='orig' checked><i>" . lang('original') . "</i></label> " : "")
+				. enum_input("radio", $attrs, $field, $value, "NULL")
 			;
 		}
 		return "";
@@ -750,7 +759,7 @@ class Adminer {
 		} elseif (preg_match('~^([+-]|\|\|)$~', $function)) {
 			$return = idf_escape($name) . " $function $return";
 		} elseif (preg_match('~^[+-] interval$~', $function)) {
-			$return = idf_escape($name) . " $function " . (preg_match("~^(\\d+|'[0-9.: -]') [A-Z_]+\$~i", $value) ? $value : $return);
+			$return = idf_escape($name) . " $function " . (preg_match("~^(\\d+|'[0-9.: -]') [A-Z_]+\$~i", $value) && JUSH != "pgsql" ? $value : $return);
 		} elseif (preg_match('~^(addtime|subtime|concat)$~', $function)) {
 			$return = "$function(" . idf_escape($name) . ", $return)";
 		} elseif (preg_match('~^(md5|sha1|password|encrypt)$~', $function)) {
@@ -839,7 +848,7 @@ class Adminer {
 					}
 				}
 			}
-			$result = connection()->query($query, 1); // 1 - MYSQLI_USE_RESULT //! enum and set as numbers
+			$result = connection()->query($query, 1); // 1 - MYSQLI_USE_RESULT
 			if ($result) {
 				$insert = "";
 				$buffer = "";
@@ -879,15 +888,18 @@ class Adminer {
 								continue;
 							}
 							$field = $fields[$key];
-							$row[$key] = ($val !== null
-								? unconvert_field($field, preg_match(number_type(), $field["type"]) && !preg_match('~\[~', $field["full_type"]) && is_numeric($val) ? $val : q(($val === false ? 0 : $val)))
-								: "NULL"
-							);
+							$row[$key] = ($val === null ? "NULL"
+								: ($val === false ? 0
+								: unconvert_field($field, preg_match(number_type(), $field["type"]) && !preg_match('~\[~', $field["full_type"]) && is_numeric($val)
+									? $val
+									: (!is_blob($field) || is_utf8($val) ? q($val) : driver()->quoteBinary($val)))
+							));
 						}
 						$s = ($max_packet ? "\n" : " ") . "(" . implode(",\t", $row) . ")";
 						if (!$buffer) {
 							$buffer = $insert . $s;
-						} elseif (JUSH == 'mssql'
+						} elseif (
+							JUSH == 'mssql'
 							? $count % 1000 != 0 // https://learn.microsoft.com/en-us/sql/t-sql/queries/table-value-constructor-transact-sql#limitations-and-restrictions
 							: strlen($buffer) + 4 + strlen($s) + strlen($suffix) < $max_packet // 4 - length specification
 						) {
@@ -915,7 +927,7 @@ class Adminer {
 	* @return string filename without extension
 	*/
 	function dumpFilename(string $identifier): string {
-		return friendly_url($identifier != "" ? $identifier : (SERVER != "" ? SERVER : "localhost"));
+		return friendly_url($identifier != "" ? $identifier : (SERVER ?: "localhost"));
 	}
 
 	/** Send headers for export
@@ -962,6 +974,12 @@ class Adminer {
 		echo (support("scheme") ? "<a href='" . h(ME) . "scheme='>" . ($_GET["ns"] != "" ? lang('Alter schema') : lang('Create schema')) . "</a>\n" : "");
 		echo ($_GET["ns"] !== "" ? '<a href="' . h(ME) . 'schema=">' . lang('Database schema') . "</a>\n" : "");
 		echo (support("privileges") ? "<a href='" . h(ME) . "privileges='>" . lang('Privileges') . "</a>\n" : "");
+		if ($_GET["ns"] !== "") {
+			echo (support("routine") ? "<a href='#routines'>" . lang('Routines') . "</a>\n" : "");
+			echo (support("sequence") ? "<a href='#sequences'>" . lang('Sequences') . "</a>\n" : "");
+			echo (support("type") ? "<a href='#user-types'>" . lang('User types') . "</a>\n" : "");
+			echo (support("event") ? "<a href='#events'>" . lang('Events') . "</a>\n" : "");
+		}
 		return true;
 	}
 
@@ -984,7 +1002,7 @@ class Adminer {
 						if ($password !== null) {
 							$dbs = $_SESSION["db"][$vendor][$server][$username];
 							foreach (($dbs ? array_keys($dbs) : array("")) as $db) {
-								$output .= "<li><a href='" . h(auth_url($vendor, $server, $username, $db)) . "'>($name) " . h($username . ($server != "" ? "@" . adminer()->serverName($server) : "") . ($db != "" ? " - $db" : "")) . "</a>\n";
+								$output .= "<li><a href='" . h(auth_url($vendor, $server, $username, $db)) . "'>($name) " . h("$username@" . ($server != "" ? adminer()->serverName($server) : "") . ($db != "" ? " - $db" : "")) . "</a>\n";
 							}
 						}
 					}
@@ -1004,15 +1022,16 @@ class Adminer {
 			$actions = array();
 			if (DB == "" || !$missing) {
 				if (support("sql")) {
-					$actions[] = "<a href='" . h(ME) . "sql='" . bold(isset($_GET["sql"]) && !isset($_GET["import"])) . ">" . lang('SQL command') . "</a>";
-					$actions[] = "<a href='" . h(ME) . "import='" . bold(isset($_GET["import"])) . ">" . lang('Import') . "</a>";
+					$actions['sql'] = "<a href='" . h(ME) . "sql='" . bold(isset($_GET["sql"]) && !isset($_GET["import"])) . ">" . lang('SQL command') . "</a>";
+					$actions['import'] = "<a href='" . h(ME) . "import='" . bold(isset($_GET["import"])) . ">" . lang('Import') . "</a>";
 				}
-				$actions[] = "<a href='" . h(ME) . "dump=" . urlencode(isset($_GET["table"]) ? $_GET["table"] : $_GET["select"]) . "' id='dump'" . bold(isset($_GET["dump"])) . ">" . lang('Export') . "</a>";
+				$actions['dump'] = "<a href='" . h(ME) . "dump=" . urlencode(isset($_GET["table"]) ? $_GET["table"] : $_GET["select"]) . "' id='dump'" . bold(isset($_GET["dump"])) . ">" . lang('Export') . "</a>";
 			}
 			$in_db = $_GET["ns"] !== "" && !$missing && DB != "";
-			if ($in_db) {
-				$actions[] = '<a href="' . h(ME) . 'create="' . bold($_GET["create"] === "") . ">" . lang('Create table') . "</a>";
+			if ($in_db && function_exists('Adminer\alter_table')) {
+				$actions['create'] = '<a href="' . h(ME) . 'create="' . bold($_GET["create"] === "") . ">" . lang('Create table') . "</a>";
 			}
+			$actions = adminer()->menuActions($actions, $missing);
 			echo ($actions ? "<p class='links'>\n" . implode("\n", $actions) . "\n" : "");
 			if ($in_db) {
 				if ($tables) {
@@ -1042,7 +1061,15 @@ class Adminer {
 				foreach ($tables as $table => $type) {
 					$links[] = preg_quote($table, '/');
 				}
-				echo "var jushLinks = { " . JUSH . ": [ '" . js_escape(ME) . (support("table") ? "table=" : "select=") . "\$&', /\\b(" . implode("|", $links) . ")\\b/g ] };\n";
+				echo "var jushLinks = { " . JUSH . ":";
+				json_row(js_escape(ME) . (support("table") ? "table" : "select") . '=$&', '/\b(' . implode('|', $links) . ')\b/g', false);
+				if (support('routine')) {
+					foreach (routines() as $row) {
+						json_row(js_escape(ME) . 'function=' . urlencode($row["SPECIFIC_NAME"]) . '&name=$&', '/\b' . preg_quote($row["ROUTINE_NAME"], '/') . '(?=["`]?\()/g', false);
+					}
+				}
+				json_row('');
+				echo "};\n";
 				foreach (array("bac", "bra", "sqlite_quo", "mssql_bra") as $val) {
 					echo "jushLinks.$val = jushLinks." . JUSH . ";\n";
 				}
@@ -1058,7 +1085,7 @@ class Adminer {
 			}
 			echo "</script>\n";
 		}
-		echo script("syntaxHighlighting('" . preg_replace('~^(\d\.?\d).*~s', '\1', connection()->server_info) . "', '" . connection()->flavor . "');");
+		echo script("syntaxHighlighting('" . (preg_match('~^\d\.?\d~', connection()->server_info, $match) ? $match[0] : "") . "', '" . connection()->flavor . "');");
 	}
 
 	/** Print databases list in menu */
@@ -1093,6 +1120,14 @@ class Adminer {
 	}
 
 	/** Print table list in menu
+	* @param string[] $actions
+	* @return string[]
+	*/
+	function menuActions(array $actions, string $missing): array {
+		return $actions;
+	}
+
+	/** Print table list in menu
 	* @param TableStatus[] $tables
 	*/
 	function tablesPrint(array $tables): void {
@@ -1114,6 +1149,20 @@ class Adminer {
 			}
 		}
 		echo "</ul>\n";
+	}
+
+	/** Get server variables
+	* @return list<string[]> [[$name, $value]]
+	*/
+	function showVariables(): array {
+		return show_variables();
+	}
+
+	/** Get status variables
+	* @return list<string[]> [[$name, $value]]
+	*/
+	function showStatus(): array {
+		return show_status();
 	}
 
 	/** Get process list

@@ -11,7 +11,7 @@ if (isset($_GET["sqlite"])) {
 			public $extension = "SQLite3";
 			private $link;
 
-			function attach(?string $filename, string $username, string $password): string {
+			function attach(string $filename, string $username, string $password): string {
 				$this->link = new \SQLite3($filename);
 				$version = $this->link->version();
 				$this->server_info = $version["versionString"];
@@ -65,21 +65,14 @@ if (isset($_GET["sqlite"])) {
 					"charsetnr" => ($type == SQLITE3_BLOB ? 63 : 0), // 63 - binary
 				);
 			}
-
-			function __destruct() {
-				$this->result->finalize();
-			}
 		}
 
 	} elseif (extension_loaded("pdo_sqlite")) {
 		abstract class SqliteDb extends PdoDb {
 			public $extension = "PDO_SQLite";
 
-			function attach(?string $filename, string $username, string $password): string {
-				$this->dsn(DRIVER . ":$filename", "", "");
-				$this->query("PRAGMA foreign_keys = 1");
-				$this->query("PRAGMA busy_timeout = 500");
-				return '';
+			function attach(string $filename, string $username, string $password): string {
+				return $this->dsn(DRIVER . ":$filename", "", "");
 			}
 		}
 
@@ -87,7 +80,7 @@ if (isset($_GET["sqlite"])) {
 
 	if (class_exists('Adminer\SqliteDb')) {
 		class Db extends SqliteDb {
-			function attach(?string $filename, string $username, string $password): string {
+			function attach(string $filename, string $username, string $password): string {
 				parent::attach($filename, $username, $password);
 				$this->query("PRAGMA foreign_keys = 1");
 				$this->query("PRAGMA busy_timeout = 500");
@@ -122,7 +115,7 @@ if (isset($_GET["sqlite"])) {
 		public $functions = array("hex", "length", "lower", "round", "unixepoch", "upper");
 		public $grouping = array("avg", "count", "count distinct", "group_concat", "max", "min", "sum");
 
-		static function connect(?string $server, string $username, string $password) {
+		static function connect(string $server, string $username, string $password) {
 			if ($password != "") {
 				return lang('Database does not support password.');
 			}
@@ -134,10 +127,25 @@ if (isset($_GET["sqlite"])) {
 			if (min_version(3.31, 0, $connection)) {
 				$this->generated = array("STORED", "VIRTUAL");
 			}
+			if (min_version(3.37, 0, $connection)) {
+				$this->types[0]["any"] = 0;
+			}
 		}
 
 		function structuredTypes(): array {
 			return array_keys($this->types[0]);
+		}
+
+		function engines(): array {
+			$return = array("table");
+			if (min_version("3.8.2")) {
+				if (min_version(3.37)) {
+					$return[] = "STRICT";
+					$return[] = "STRICT, WITHOUT ROWID";
+				}
+				$return[] = "WITHOUT ROWID";
+			}
+			return $return;
 		}
 
 		function insertUpdate(string $table, array $rows, array $primary) {
@@ -152,8 +160,8 @@ if (isset($_GET["sqlite"])) {
 			if ($name == "sqlite_sequence") {
 				return "fileformat2.html#seqtab";
 			}
-			if ($name == "sqlite_master") {
-				return "fileformat2.html#$name";
+			if (preg_match('~^sqlite(_temp)?_(master|schema)$~', $name)) {
+				return "schematab.html";
 			}
 		}
 
@@ -214,14 +222,31 @@ if (isset($_GET["sqlite"])) {
 		return array();
 	}
 
-	function table_status($name = "") {
+	function table_status($name = "", $fast = false) {
 		$return = array();
-		foreach (get_rows("SELECT name AS Name, type AS Engine, 'rowid' AS Oid, '' AS Auto_increment FROM sqlite_master WHERE type IN ('table', 'view') " . ($name != "" ? "AND name = " . q($name) : "ORDER BY name")) as $row) {
-			$row["Rows"] = get_val("SELECT COUNT(*) FROM " . idf_escape($row["Name"]));
+		foreach (
+			get_rows(
+				"SELECT name AS Name, type AS Engine, sql, 'rowid' AS Oid, '' AS Auto_increment FROM sqlite_master WHERE type IN ('table', 'view') "
+				. ($name != "" ? "AND name = " . q($name) : "ORDER BY (name = 'sqlite_sequence'), name")
+			) as $row
+		) {
+			if ($row["Engine"] == "table") {
+				$suffix = preg_replace('~.*\)~s', '', $row["sql"]); // table options are after the last parenthesis
+				$row["Engine"] = implode(", ", array_filter(array(
+					(preg_match('~\bSTRICT\b~i', $suffix) ? "STRICT" : 0),
+					(preg_match('~\bWITHOUT\s+ROWID\b~i', $suffix) ? "WITHOUT ROWID" : 0),
+				))) ?: "table";
+			}
+			unset($row["sql"]);
+			if (!$fast) {
+				$row["Rows"] = get_val("SELECT COUNT(*) FROM " . idf_escape($row["Name"]));
+			}
 			$return[$row["Name"]] = $row;
 		}
-		foreach (get_rows("SELECT * FROM sqlite_sequence" . ($name != "" ? " WHERE name = " . q($name) : ""), null, "") as $row) {
-			$return[$row["name"]]["Auto_increment"] = $row["seq"];
+		if (!$fast) {
+			foreach (get_rows("SELECT * FROM sqlite_sequence" . ($name != "" ? " WHERE name = " . q($name) : ""), null, "") as $row) {
+				$return[$row["name"]]["Auto_increment"] = $row["seq"];
+			}
 		}
 		return $return;
 	}
@@ -236,30 +261,34 @@ if (isset($_GET["sqlite"])) {
 
 	function fields($table) {
 		$return = array();
-		$primary = "";
+		$sql = get_val("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = " . q($table));
+		$privileges = array("select" => 1, "where" => 1, "order" => 1);
+		if (!preg_match('~^sqlite(_temp)?_(master|schema)$~', $table)) {
+			$privileges += array("insert" => 1, "update" => 1);
+		}
 		foreach (get_rows("PRAGMA table_" . (min_version(3.31) ? "x" : "") . "info(" . table($table) . ")") as $row) {
 			$name = $row["name"];
 			$type = strtolower($row["type"]);
 			$default = $row["dflt_value"];
 			$return[$name] = array(
 				"field" => $name,
-				"type" => (preg_match('~int~i', $type) ? "integer" : (preg_match('~char|clob|text~i', $type) ? "text" : (preg_match('~blob~i', $type) ? "blob" : (preg_match('~real|floa|doub~i', $type) ? "real" : "numeric")))),
+				"type" => (preg_match('~int~i', $type) ? "integer"
+					: (preg_match('~char|clob|text~i', $type) ? "text"
+					: (preg_match('~blob~i', $type) ? "blob"
+					: (preg_match('~real|floa|doub~i', $type) ? "real"
+					: (preg_match('~any~i', $type) ? "any"
+					: "numeric"
+				))))),
 				"full_type" => $type,
 				"default" => (preg_match("~^'(.*)'$~", $default, $match) ? str_replace("''", "'", $match[1]) : ($default == "NULL" ? null : $default)),
 				"null" => !$row["notnull"],
-				"privileges" => array("select" => 1, "insert" => 1, "update" => 1, "where" => 1, "order" => 1),
+				"privileges" => $privileges,
 				"primary" => $row["pk"],
 			);
-			if ($row["pk"]) {
-				if ($primary != "") {
-					$return[$primary]["auto_increment"] = false;
-				} elseif (preg_match('~^integer$~i', $type)) {
-					$return[$name]["auto_increment"] = true;
-				}
-				$primary = $name;
+			if ($row["pk"] && preg_match('~\bAUTOINCREMENT\b~i', $sql)) {
+				$return[$name]["auto_increment"] = true;
 			}
 		}
-		$sql = get_val("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = " . q($table));
 		$idf = '(("[^"]*+")+|[a-z0-9_]+)';
 		preg_match_all('~' . $idf . '\s+text\s+COLLATE\s+(\'[^\']+\'|\S+)~i', $sql, $matches, PREG_SET_ORDER);
 		foreach ($matches as $match) {
@@ -384,6 +413,9 @@ if (isset($_GET["sqlite"])) {
 	function drop_databases($databases) {
 		connection()->attach(":memory:", '', ''); // to unlock file, doesn't work in PDO on Windows
 		foreach ($databases as $db) {
+			if (!check_sqlite_name($db)) {
+				return false;
+			}
 			if (!@unlink($db)) {
 				connection()->error = lang('File exists.');
 				return false;
@@ -406,7 +438,7 @@ if (isset($_GET["sqlite"])) {
 	}
 
 	function alter_table($table, $name, $fields, $foreign, $comment, $engine, $collation, $auto_increment, $partitioning) {
-		$use_all_fields = ($table == "" || $foreign);
+		$use_all_fields = ($table == "" || $foreign || $engine);
 		foreach ($fields as $field) {
 			if ($field[0] != "" || !$field[1] || $field[2]) {
 				$use_all_fields = true;
@@ -432,7 +464,7 @@ if (isset($_GET["sqlite"])) {
 			if ($table != $name && !queries("ALTER TABLE " . table($table) . " RENAME TO " . table($name))) {
 				return false;
 			}
-		} elseif (!recreate_table($table, $name, $alter, $originals, $foreign, $auto_increment)) {
+		} elseif (!recreate_table($table, $name, $alter, $originals, $foreign, $auto_increment, array(), "", "", $engine)) {
 			return false;
 		}
 		if ($auto_increment) {
@@ -452,12 +484,12 @@ if (isset($_GET["sqlite"])) {
 	* @param list<list<string>> $fields [process_field()], empty to preserve
 	* @param string[] $originals [$original => idf_escape($new_column)], empty to preserve
 	* @param string[] $foreign [format_foreign_key()], empty to preserve
-	* @param numeric-string $auto_increment set auto_increment to this value, "" to preserve
+	* @param numeric-string|'' $auto_increment set auto_increment to this value, "" to preserve
 	* @param list<array{string, string, list<string>|'DROP'}> $indexes [[$type, $name, $columns]], empty to preserve
 	* @param string $drop_check CHECK constraint to drop
 	* @param string $add_check CHECK constraint to add
 	*/
-	function recreate_table(string $table, string $name, array $fields, array $originals, array $foreign, string $auto_increment = "", $indexes = array(), string $drop_check = "", string $add_check = ""): bool {
+	function recreate_table(string $table, string $name, array $fields, array $originals, array $foreign, string $auto_increment = "", $indexes = array(), string $drop_check = "", string $add_check = "", string $engine = ""): bool {
 		if ($table != "") {
 			if (!$fields) {
 				foreach (fields($table) as $key => $field) {
@@ -530,8 +562,11 @@ if (isset($_GET["sqlite"])) {
 		if ($add_check) {
 			$changes[] = "  CHECK ($add_check)";
 		}
-		$temp_name = ($table == $name ? "adminer_$name" : $name);
-		if (!queries("CREATE TABLE " . table($temp_name) . " (\n" . implode(",\n", $changes) . "\n)")) {
+		$temp_name = ($table != "" && $table == $name ? "adminer_$name" : $name);
+		if (!$engine && $table != "") {
+			$engine = idx(table_status1($table), "Engine");
+		}
+		if (!queries("CREATE TABLE " . table($temp_name) . " (\n" . implode(",\n", $changes) . "\n)" . ($engine != "table" && in_array($engine, driver()->engines()) ? " $engine" : ""))) {
 			// implicit ROLLBACK to not overwrite connection()->error
 			return false;
 		}
@@ -680,7 +715,7 @@ if (isset($_GET["sqlite"])) {
 		return "DELETE FROM " . table($table);
 	}
 
-	function use_sql($database) {
+	function use_sql($database, $style = "") {
 	}
 
 	function trigger_sql($table) {

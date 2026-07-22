@@ -7,7 +7,7 @@
 * @license https://www.apache.org/licenses/LICENSE-2.0 Apache License, Version 2.0
 * @license https://www.gnu.org/licenses/gpl-2.0.html GNU General Public License, version 2 (one or other)
 */
-class AdminerPrism extends Adminer\Plugin {
+class AdminerHighlightPrism extends Adminer\Plugin {
 	private $editorRoot;
 	private $minified;
 	private $theme;
@@ -65,5 +65,6 @@ if (el) {
 		'de' => array('' => 'Prism Code Editor verwenden, für die Syntaxhervorhebung und <textarea>'),
 		'ja' => array('' => '構文や <textarea> の強調表示に Prism Code Editor を使用'),
 		'pl' => array('' => 'Użyj Prism Code Editora do podświetlania składni i <textarea>'),
+		'hr' => array('' => 'Koristi Prism Code Editor za isticanje sintakse i SQL <textarea>'),
 	);
 }

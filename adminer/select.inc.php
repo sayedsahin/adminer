@@ -12,7 +12,7 @@ $adminer_import = get_settings("adminer_import");
 $rights = array(); // privilege => 0
 $columns = array(); // selectable columns
 $search_columns = array(); // searchable columns
-$order_columns = array(); // searchable columns
+$order_columns = array(); // sortable columns
 $text_length = "";
 foreach ($fields as $key => $field) {
 	$name = adminer()->fieldName($field);
@@ -110,10 +110,13 @@ if ($_POST && !$error) {
 			$affected = 0;
 			$set = array();
 			if (!$_POST["delete"]) {
-				foreach ($_POST["fields"] as $name => $val) {
-					$val = process_input($fields[$name]);
-					if ($val !== null && ($_POST["clone"] || $val !== false)) {
-						$set[idf_escape($name)] = ($val !== false ? $val : idf_escape($name));
+				foreach ($fields as $name => $val) {
+					$idf = bracket_escape($name);
+					if (isset($_POST["fields"][$idf]) || $_FILES["fields-$idf"]) {
+						$val = process_input($fields[$name]);
+						if ($val !== null && ($_POST["clone"] || $val !== false)) {
+							$set[idf_escape($name)] = ($val !== false ? $val : idf_escape($name));
+						}
 					}
 				}
 			}
@@ -353,17 +356,14 @@ if (!$columns && support("table")) {
 						$desc = "&desc%5B0%5D=1";
 						echo "<th id='th[" . h(bracket_escape($key)) . "]'>" . script("mixin(qsl('th'), {onmouseover: partial(columnMouse), onmouseout: partial(columnMouse, ' hidden')});", "");
 						$fun = apply_sql_function($val["fun"], $name); //! columns looking like functions
-						$sortable = isset($field["privileges"]["order"]) || $fun;
-						echo ($sortable ? "<a href='" . h($href . ($order[0] == $column || $order[0] == $key || (!$order && $is_group && $group[0] == $column) ? $desc : '')) . "'>$fun</a>" : $fun); // $order[0] == $key - COUNT(*)
-						echo "<span class='column hidden'>";
-						if ($sortable) {
-							echo "<a href='" . h($href . $desc) . "' title='" . lang('descending') . "' class='text'> ↓</a>";
-						}
+						$sortable = isset($field["privileges"]["order"]) || $fun != $name;
+						echo ($sortable ? "<a href='" . h($href . ($order[0] == $column || $order[0] == $key ? $desc : '')) . "'>$fun</a>" : $fun); // $order[0] == $key - COUNT(*)
+						$menu = ($sortable ? "<a href='" . h($href . $desc) . "' title='" . lang('descending') . "' class='text'> ↓</a>" : '');
 						if (!$val["fun"] && isset($field["privileges"]["where"])) {
-							echo '<a href="#fieldset-search" title="' . lang('Search') . '" class="text jsonly"> =</a>';
-							echo script("qsl('a').onclick = partial(selectSearch, '" . js_escape($key) . "');");
+							$menu .= '<a href="#fieldset-search" title="' . lang('Search') . '" class="text jsonly"> =</a>';
+							$menu .= script("qsl('a').onclick = partial(selectSearch, '" . js_escape($key) . "');");
 						}
-						echo "</span>";
+						echo ($menu ? "<span class='column hidden'>$menu</span>" : "");
 					}
 					$functions[$key] = $val["fun"];
 					next($select);
@@ -417,13 +417,12 @@ if (!$columns && support("table")) {
 					if (isset($names[$key])) {
 						$column = current($select);
 						$field = (array) $fields[$key];
-						$val = driver()->value($val, $field);
 						if ($val != "" && (!isset($email_fields[$key]) || $email_fields[$key] != "")) {
 							$email_fields[$key] = (is_mail($val) ? $names[$key] : ""); //! filled e-mails can be contained on other pages
 						}
 
 						$link = "";
-						if (preg_match('~blob|bytea|raw|file~', $field["type"]) && $val != "") {
+						if (is_blob($field) && $val != "") {
 							$link = ME . 'download=' . urlencode($TABLE) . '&field=' . urlencode($key) . $unique_idf;
 						}
 						if (!$link && $val !== null) { // link related items
@@ -459,7 +458,8 @@ if (!$columns && support("table")) {
 						$html = select_value($val, $link, $field, $text_length);
 						$id = h("val[$unique_idf][" . bracket_escape($key) . "]");
 						$posted = idx(idx($_POST["val"], $unique_idf), bracket_escape($key));
-						$editable = !is_array($row[$key]) && is_utf8($html) && $rows[$n][$key] == $row[$key] && !$functions[$key] && !$field["generated"];
+						$update = idx($field["privileges"], "update");
+						$editable = !is_array($row[$key]) && is_utf8($html) && $rows[$n][$key] == $row[$key] && !$functions[$key] && !$field["generated"] && $update;
 						$type = (preg_match('~^(AVG|MIN|MAX)\((.+)\)~', $column, $match) ? $fields[idf_unescape($match[2])]["type"] : $field["type"]);
 						$text = preg_match('~text|json|lob~', $type);
 						$is_number = preg_match(number_type(), $type) || preg_match('~^(CHAR_LENGTH|ROUND|FLOOR|CEIL|TIME_TO_SEC|COUNT|SUM)\(~', $column);
@@ -469,10 +469,11 @@ if (!$columns && support("table")) {
 							echo ">" . ($text ? "<textarea name='$id' cols='30' rows='" . (substr_count($row[$key], "\n") + 1) . "'>$h_value</textarea>" : "<input name='$id' value='$h_value' size='$lengths[$key]'>");
 						} else {
 							$long = strpos($html, "<i>…</i>");
-							echo " data-text='" . ($long ? 2 : ($text ? 1 : 0)) . "'"
-								. ($editable ? "" : " data-warning='" . h(lang('Use edit link to modify this value.')) . "'")
-								. ">$html"
-							;
+							echo ($update
+								? " data-text='" . ($long ? 2 : ($text ? 1 : 0)) . "'"
+									. ($editable ? "" : " data-warning='" . h(lang('Use edit link to modify this value.')) . "'")
+								: ""
+							) . ">$html";
 						}
 					}
 					next($select);
@@ -503,7 +504,7 @@ if (!$columns && support("table")) {
 						if (intval($found_rows) < max(1e4, 2 * ($page + 1) * $limit)) {
 							// slow with big tables
 							$found_rows = first(slow_query(count_rows($TABLE, $where, $is_group, $group)));
-						} else {
+						} elseif (JUSH == 'sql' || JUSH == 'pgsql') {
 							$exact_count = false;
 						}
 					}
@@ -512,7 +513,7 @@ if (!$columns && support("table")) {
 				$pagination = ($limit && ($found_rows === false || $found_rows > $limit || $page));
 				if ($pagination) {
 					echo (($found_rows === false ? count($rows) + 1 : $found_rows - $page * $limit) > $limit
-						? '<p><a href="' . h(remove_from_uri("page") . "&page=" . ($page + 1)) . '" class="loadmore">' . lang('Load more data') . '</a>'
+						? '<p><a href="' . h(remove_from_uri("page|next") . ($_GET["next"] ? "&next=" . urlencode($_GET["next"]) : "") . "&page=" . ($page + 1)) . '" class="loadmore">' . lang('Load more data') . '</a>'
 							. script("qsl('a').onclick = partial(selectLoadMore, $limit, '" . lang('Loading') . "…');", "")
 						: ''
 					);
@@ -523,11 +524,11 @@ if (!$columns && support("table")) {
 				if ($pagination) {
 					// display first, previous 4, next 4 and last page
 					$max_page = ($found_rows === false
-						? $page + (count($rows) >= $limit ? 2 : 1)
+						? $page + ($rows ? (count($rows) >= $limit ? 2 : 1) : 0)
 						: floor(($found_rows - 1) / $limit)
 					);
 					echo "<fieldset>";
-					if (JUSH != "simpledb") {
+					if (JUSH != "simpledb" && JUSH != "redis") {
 						echo "<legend><a href='" . h(remove_from_uri("page")) . "'>" . lang('Page') . "</a></legend>";
 						echo script("qsl('a').onclick = function () { pageClick(this.href, +prompt('" . lang('Page') . "', '" . ($page + 1) . "')); return false; };");
 						echo pagination(0, $page) . ($page > 5 ? " …" : "");
@@ -595,9 +596,10 @@ if (!$columns && support("table")) {
 				echo "<a href='#import'>" . lang('Import') . "</a>";
 				echo script("qsl('a').onclick = partial(toggle, 'import');", "");
 				echo "<span id='import'" . ($_POST["import"] ? "" : " class='hidden'") . ">: ";
-				echo "<input type='file' name='csv_file'> ";
-				echo html_select("separator", array("csv" => "CSV,", "csv;" => "CSV;", "tsv" => "TSV"), $adminer_import["format"]);
-				echo " <input type='submit' name='import' value='" . lang('Import') . "'>";
+				echo file_input("<input type='file' name='csv_file'> "
+					. html_select("separator", array("csv" => "CSV,", "csv;" => "CSV;", "tsv" => "TSV"), $adminer_import["format"])
+					. " <input type='submit' name='import' value='" . lang('Import') . "'>")
+				;
 				echo "</span>";
 			}
 

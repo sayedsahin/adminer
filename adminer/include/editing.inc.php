@@ -72,25 +72,18 @@ function print_select_result($result, ?Db $connection2 = null, array $orgtables 
 				} else {
 					$link = ME . "edit=" . urlencode($links[$key]);
 					foreach ($indexes[$links[$key]] as $col => $j) {
+						if ($row[$j] === null) {
+							$link = "";
+							break;
+						}
 						$link .= "&where" . urlencode("[" . bracket_escape($col) . "]") . "=" . urlencode($row[$j]);
 					}
 				}
-			} elseif (is_url($val)) {
-				$link = $val;
 			}
-			if ($val === null) {
-				$val = "<i>NULL</i>";
-			} elseif ($blobs[$key] && !is_utf8($val)) {
-				$val = "<i>" . lang('%d byte(s)', strlen($val)) . "</i>"; //! link to download
-			} else {
-				$val = h($val);
-				if ($types[$key] == 254) { // 254 - char
-					$val = "<code>$val</code>";
-				}
-			}
-			if ($link) {
-				$val = "<a href='" . h($link) . "'" . (is_url($link) ? target_blank() : '') . ">$val</a>";
-			}
+			$field = array(
+				'type' => ($blobs[$key] ? 'blob' : ($types[$key] == 254 ? 'char' : '')),
+			);
+			$val = select_value($val, $link, $field, null);
 			// https://dev.mysql.com/doc/dev/mysql-server/latest/field__types_8h.html
 			echo "<td" . ($types[$key] <= 9 || $types[$key] == 246 ? " class='number'" : "") . ">$val";
 		}
@@ -150,13 +143,13 @@ function select_input(string $attrs, array $options, ?string $value = "", string
 * @param string $key or "" to close the object
 * @param string|int $val
 */
-function json_row(string $key, $val = null): void {
+function json_row(string $key, $val = null, bool $escape = true): void {
 	static $first = true;
 	if ($first) {
 		echo "{";
 	}
 	if ($key != "") {
-		echo ($first ? "" : ",") . "\n\t\"" . addcslashes($key, "\r\n\t\"\\/") . '": ' . ($val !== null ? '"' . addcslashes($val, "\r\n\"\\/") . '"' : 'null');
+		echo ($first ? "" : ",") . "\n\t\"" . addcslashes($key, "\r\n\t\"\\/") . '": ' . ($val !== null ? ($escape ? '"' . addcslashes($val, "\r\n\"\\/") . '"' : $val) : 'null');
 		$first = false;
 	} else {
 		echo "\n}\n";
@@ -246,15 +239,21 @@ function process_field(array $field, array $type_field): array {
 * @param Field $field
 */
 function default_value(array $field): string {
-	$default = $field["default"];
+	if ($field["default"] === null) {
+		return "";
+	}
+	$default = str_replace("\r", "", $field["default"]);
 	$generated = $field["generated"];
-	return ($default === null ? "" : (in_array($generated, driver()->generated)
-		? (JUSH == "mssql" ? " AS ($default)" . ($generated == "VIRTUAL" ? "" : " $generated") . "" : " GENERATED ALWAYS AS ($default) $generated")
-		: " DEFAULT " . (!preg_match('~^GENERATED ~i', $default) && (preg_match('~char|binary|text|json|enum|set~', $field["type"]) || preg_match('~^(?![a-z])~i', $default))
-			? (JUSH == "sql" && preg_match('~text|json~', $field["type"]) ? "(" . q($default) . ")" : q($default)) // MySQL requires () around default value of text column
-			: str_ireplace("current_timestamp()", "CURRENT_TIMESTAMP", (JUSH == "sqlite" ? "($default)" : $default))
+	return (in_array($generated, driver()->generated)
+		? (JUSH == "mssql" ? " AS ($default)" . ($generated == "VIRTUAL" ? "" : " $generated") : " GENERATED ALWAYS AS ($default) $generated")
+		: (preg_match('~^GENERATED ~i', $default)
+			? " $default"
+			: " DEFAULT " . (preg_match('~char|binary|text|json|enum|set~', $field["type"]) || preg_match('~^(?![a-z])~i', $default)
+				? (JUSH == "sql" && preg_match('~text|json~', $field["type"]) ? "(" . q($default) . ")" : q($default)) // MySQL requires () around default value of text column
+				: str_ireplace("current_timestamp()", "CURRENT_TIMESTAMP", (JUSH == "sqlite" ? "($default)" : $default))
+			)
 		)
-	));
+	);
 }
 
 /** Get type class to use in CSS
@@ -313,8 +312,9 @@ function edit_fields(array $fields, array $collations, $type = "TABLE", array $f
 		$display = (isset($_POST["add"][$i-1]) || (isset($field["field"]) && !idx($_POST["drop_col"], $i))) && (support("drop_col") || $orig == "");
 		echo "<tr" . ($display ? "" : " style='display: none;'") . ">\n";
 		echo ($type == "PROCEDURE" ? "<td>" . html_select("fields[$i][inout]", explode("|", driver()->inout), $field["inout"]) : "") . "<th>";
+		echo (support("move_col") ? icon("move", "", "↕", lang('Move')) . " " : "");
 		if ($display) {
-			echo "<input name='fields[$i][field]' value='" . h($field["field"]) . "' data-maxlength='64' autocapitalize='off' aria-labelledby='label-name'>";
+			echo "<input name='fields[$i][field]' value='" . h($field["field"]) . "' data-maxlength='64' autocapitalize='off' aria-labelledby='label-name'" . (isset($_POST["add"][$i-1]) ? " autofocus" : "") . ">";
 		}
 		echo input_hidden("fields[$i][orig]", $orig);
 		edit_type("fields[$i]", $field, $collations, $foreign_keys);
@@ -325,57 +325,27 @@ function edit_fields(array $fields, array $collations, $type = "TABLE", array $f
 				? html_select("fields[$i][generated]", array_merge(array("", "DEFAULT"), driver()->generated), $field["generated"]) . " "
 				: checkbox("fields[$i][generated]", 1, $field["generated"], "", "", "", "label-default")
 			);
-			echo "<input name='fields[$i][default]' value='" . h($field["default"]) . "' aria-labelledby='label-default'>";
+			$attrs = " name='fields[$i][default]' aria-labelledby='label-default'";
+			$value = h($field["default"]);
+			echo (preg_match('~\n~', $field["default"]) ? "<textarea$attrs rows='2' cols='30' style='vertical-align: bottom;'>\n$value</textarea>" : "<input$attrs value='$value'>"); // \n to preserve the leading newline
 			echo (support("comment") ? "<td$comment_class><input name='fields[$i][comment]' value='" . h($field["comment"]) . "' data-maxlength='" . (min_version(5.5) ? 1024 : 255) . "' aria-labelledby='label-comment'>" : "");
 		}
 		echo "<td>";
-		echo (support("move_col") ?
-			icon("plus", "add[$i]", "+", lang('Add next')) . " "
-			. icon("up", "up[$i]", "↑", lang('Move up')) . " "
-			. icon("down", "down[$i]", "↓", lang('Move down')) . " "
-		: "");
+		echo (support("move_col") ? icon("plus", "add[$i]", "+", lang('Add next')) . " " : "");
 		echo ($orig == "" || support("drop_col") ? icon("cross", "drop_col[$i]", "x", lang('Remove')) : "");
 	}
 }
 
-/** Move fields up and down or add field
+/** Add or remove field
 * @param Field[] $fields
+* @param-out (Field|array{})[] $fields
 */
 function process_fields(array &$fields): bool {
-	$offset = 0;
-	if ($_POST["up"]) {
-		$last = 0;
-		foreach ($fields as $key => $field) {
-			if (key($_POST["up"]) == $key) {
-				unset($fields[$key]);
-				array_splice($fields, $last, 0, array($field));
-				break;
-			}
-			if (isset($field["field"])) {
-				$last = $offset;
-			}
-			$offset++;
-		}
-	} elseif ($_POST["down"]) {
-		$found = false;
-		foreach ($fields as $key => $field) {
-			if (isset($field["field"]) && $found) {
-				unset($fields[key($_POST["down"])]);
-				array_splice($fields, $offset, 0, array($found));
-				break;
-			}
-			if (key($_POST["down"]) == $key) {
-				$found = $field;
-			}
-			$offset++;
-		}
-	} elseif ($_POST["add"]) {
+	if ($_POST["add"]) {
 		$fields = array_values($fields);
 		array_splice($fields, key($_POST["add"]), 0, array(array()));
-	} elseif (!$_POST["drop_col"]) {
-		return false;
 	}
-	return true;
+	return $_POST["add"] || $_POST["drop_col"];
 }
 
 /** Callback used in routine()
@@ -487,6 +457,7 @@ function format_foreign_key(array $foreign_key): string {
 		. " (" . implode(", ", array_map('Adminer\idf_escape', $foreign_key["target"])) . ")" //! reuse $name - check in older MySQL versions
 		. (preg_match("~^(" . driver()->onActions . ")\$~", $foreign_key["on_delete"]) ? " ON DELETE $foreign_key[on_delete]" : "")
 		. (preg_match("~^(" . driver()->onActions . ")\$~", $foreign_key["on_update"]) ? " ON UPDATE $foreign_key[on_update]" : "")
+		. ($foreign_key["deferrable"] ? " $foreign_key[deferrable]" : "")
 	;
 }
 
@@ -505,20 +476,6 @@ function tar_file(string $filename, $tmp_file): void {
 	echo str_repeat("\0", 512 - strlen($return));
 	$tmp_file->send();
 	echo str_repeat("\0", 511 - ($tmp_file->size + 511) % 512);
-}
-
-/** Get INI bytes value */
-function ini_bytes(string $ini): int {
-	$val = ini_get($ini);
-	switch (strtolower(substr($val, -1))) {
-		case 'g':
-			$val = (int) $val * 1024; // no break
-		case 'm':
-			$val = (int) $val * 1024; // no break
-		case 'k':
-			$val = (int) $val * 1024;
-	}
-	return $val;
 }
 
 /** Create link to database documentation

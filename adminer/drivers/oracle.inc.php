@@ -20,7 +20,7 @@ if (isset($_GET["oracle"])) {
 				$this->error = $error;
 			}
 
-			function attach(?string $server, string $username, string $password): string {
+			function attach(string $server, string $username, string $password): string {
 				$this->link = @oci_new_connect($username, $password, $server, "AL32UTF8");
 				if ($this->link) {
 					$this->server_info = oci_server_version($this->link);
@@ -60,6 +60,10 @@ if (isset($_GET["oracle"])) {
 				}
 				return $return;
 			}
+
+			function timeout(int $ms): bool {
+				return oci_set_call_timeout($this->link, $ms);
+			}
 		}
 
 		class Result {
@@ -95,10 +99,6 @@ if (isset($_GET["oracle"])) {
 				$return->charsetnr = (preg_match("~raw|blob|bfile~", $return->type) ? 63 : 0); // 63 - binary
 				return $return;
 			}
-
-			function __destruct() {
-				oci_free_statement($this->result);
-			}
 		}
 
 	} elseif (extension_loaded("pdo_oci")) {
@@ -106,7 +106,7 @@ if (isset($_GET["oracle"])) {
 			public $extension = "PDO_OCI";
 			public $_current_db;
 
-			function attach(?string $server, string $username, string $password): string {
+			function attach(string $server, string $username, string $password): string {
 				return $this->dsn("oci:dbname=//$server;charset=AL32UTF8", $username, $password);
 			}
 
@@ -165,7 +165,7 @@ if (isset($_GET["oracle"])) {
 					}
 				}
 				if (
-					!(($where && queries("UPDATE " . table($table) . " SET " . implode(", ", $update) . " WHERE " . implode(" AND ", $where)) && connection()->affected_rows)
+					!(($where && queries("UPDATE " . table($table) . " SET " . implode(", ", $update) . " WHERE " . implode(" AND ", $where)) && $this->conn->affected_rows)
 					|| queries("INSERT INTO " . table($table) . " (" . implode(", ", array_keys($set)) . ") VALUES (" . implode(", ", $set) . ")"))
 				) {
 					return false;
@@ -466,10 +466,7 @@ AND c_src.TABLE_NAME = " . q($table);
 	}
 
 	function set_schema($scheme, $connection2 = null) {
-		if (!$connection2) {
-			$connection2 = connection();
-		}
-		return $connection2->query("ALTER SESSION SET CURRENT_SCHEMA = " . idf_escape($scheme));
+		return connection($connection2)->query("ALTER SESSION SET CURRENT_SCHEMA = " . idf_escape($scheme));
 	}
 
 	function show_variables() {

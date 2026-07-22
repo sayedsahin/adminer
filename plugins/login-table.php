@@ -19,7 +19,7 @@ class AdminerLoginTable extends Adminer\Plugin {
 	protected $database;
 
 	/** Set database of login table */
-	function __construct(string $database) {
+	function __construct($database) {
 		$this->database = $database;
 	}
 
@@ -33,5 +33,6 @@ class AdminerLoginTable extends Adminer\Plugin {
 		'pl' => array('' => 'Uwierzytelnij użytkownika z tabeli "login"'),
 		'ro' => array('' => 'Autentificați un utilizator din tabelul "login"'),
 		'ja' => array('' => '"login" テーブルによるユーザ認証'),
+		'hr' => array('' => 'Autentificira korisnika prema tablici "login"'),
 	);
 }

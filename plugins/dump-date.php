@@ -9,7 +9,7 @@
 class AdminerDumpDate extends Adminer\Plugin {
 
 	function dumpFilename($identifier) {
-		return Adminer\friendly_url(($identifier != "" ? $identifier : (Adminer\SERVER != "" ? Adminer\SERVER : "localhost")) . "-" . Adminer\get_val("SELECT NOW()"));
+		return Adminer\friendly_url(($identifier != "" ? $identifier : (Adminer\SERVER ?: "localhost")) . "-" . Adminer\get_val("SELECT NOW()"));
 	}
 
 	protected $translations = array(
@@ -18,5 +18,6 @@ class AdminerDumpDate extends Adminer\Plugin {
 		'pl' => array('' => 'Dołącz bieżącą datę i godzinę do nazwy pliku eksportu'),
 		'ro' => array('' => 'Includeți data și ora curentă în numele fișierului de export'),
 		'ja' => array('' => 'エクスポートファイル名に現在日時を含める'),
+		'hr' => array('' => 'Dodaje trenutni datum i vrijeme u naziv datoteke izvoza'),
 	);
 }

@@ -1,11 +1,149 @@
-## Adminer dev
+## Adminer 5.5.1 (released 2026-07-21)
+- Ignore invalid X-Forwarded-Prefix (GHSA-fr74-9mf9-gf44)
+- Login: Allow :/_ in server (bug #1305, regression from 5.5.0)
+- Compile: Valid UTF-8 (bug #1113, #1213)
+- Compile: Replace LZW with deflate compression
+- Add missing translations
+- Syntax highlighting: Update MySQL, MariaDB, SQLite, PostgreSQL
+- Support disabled set_time_limit() and ini_set() (bug #1288)
+- PostgreSQL: Log in with empty server (bug #1304, regression from 5.5.0)
+
+## Adminer 5.5.0 (released 2026-07-17)
+- Disallow invalid port or socket (GHSA-58cq-mgw2-38m5)
+- Ignore invalid X-Forwarded-Prefix (GHSA-8478-xrj3-h9c2)
+- Hide copy to clipboard in insecure contexts
+- Process list: Copy query to clipboard
+- Wrap uneditable values in edit form
+- Syntax highlighting: Speed up
+- Allow connecting to socket without hostname (bug #1199, regression from 5.4.0)
+- MySQL: Do not export IN in FUNCTION parameters (regression from 5.4.2)
+- MySQL: Convert vector columns to text in select and edit
+- MySQL: Unsupport MySQL &lt; 5.1
+- MySQL, SQLite: Draggable columns in alter table
+- MariaDB: Support inet4 and inet6 types
+- MariaDB: Allow setting password with password validation plugin (bug SF-814)
+- MariaDB 11.7+: Support vector columns and indexes
+- PostgreSQL 9.2+: Highlight queries in process list
+- SQLite: Support ANY type
+- SQLite: Support STRICT and WITHOUT ROWID tables
+- SQLite: Do not treat INTEGER PRIMARY KEY without AUTOINCREMENT as auto increment
+- SQLite: Disable editing of sqlite_schema
+- MS SQL: Fix multiple result sets (bug #1180)
+- New plugin: Redis driver
+- New plugin: Login behind a reverse proxy
+
+## Adminer 5.4.4 (released 2026-07-11)
+- Fix blob editing (bug #1251, regression from 5.4.2)
+- Speed up HTML escaping (bug #1147)
+- MySQL: Fix routine fields length (bug #1267, regression from 5.4.2)
+- MySQL: Preserve DETERMINISTIC and DATA ACCESS in routine definition (regression from 5.4.2)
+- MySQL: Export binary data as hex (bug #1123, SF-741)
+- MariaDB: Hash password in privileges (bug #1166, regression from 4.7.2)
+- MariaDB: Speed up getting checks (bug #1245, regression from 5.4.2)
+- MariaDB, PostgreSQL: Use CREATE OR REPLACE FUNCTION if possible
+- PostgreSQL: Allow exporting more schemas at once (bug #1243)
+- PostgreSQL: Fix editing jsonb[] columns (bug #1300, regression from 5.4.2)
+- PostgreSQL: Fix displayed size of bytea
+- PostgreSQL 18: Support VIRTUAL generated columns (bug #1286)
+- MS SQL: Fix table status (bug #1146)
+- PDO: Increase precision of double (bug #1214)
+- Editor PDO: Fix foreign key value in edit (bug #1242)
+- Editor PostgreSQL: Fix enums (bug #1241)
+- Plugins: Method menuActions() (bug #1303)
+
+## Adminer 5.4.3 (released 2026-07-09)
+- Check Sec-Fetch-Site header (GHSA-33j4-hc95-pggg)
+- Escape REQUEST_URI (GHSA-c533-9qwm-8w5h, bug #1298)
+- Validate server (GHSA-r4x9-5m63-3vxw)
+- Validate server version (GHSA-h6jr-7pr6-grgj)
+- SQLite: Disallow ATTACH commands (GHSA-q4f2-39gr-45jh)
+- SQLite: Disallow VACUUM INTO commands (GHSA-gmx3-g29w-77wf)
+- SQLite: Check filename before deleting (GHSA-6pg3-chwq-wgqc)
+- Avoid unserialize() in brute force protection (bug #1289)
+- Tables overview: allow sorting (bug #1231)
+- Select: Disable Ctrl+click inline edit without UPDATE privilege
+- Select: Display NULL in column title
+- Export: Remember unchecked objects (regression from 5.0.6)
+- Foreign key: Display new field in case of an error
+- PostgreSQL: Order NULL last
+- PostgreSQL: Display all SQL command warnings and only once
+- PostgreSQL: Export serial as serial, not nextval()
+- PostgreSQL: Fix GENERATED AS IDENTITY export (bug #1260)
+- PostgreSQL: Export schema in nextval()
+- PostgreSQL: Export schema in REFERENCES
+- PostgreSQL: Add ~* operator (bug #1271)
+- Editor: Display tinyint(1) as checkbox (bug #1246, regression from 5.4.2)
+- Croatian translation
+
+## Adminer 5.4.2 (released 2026-02-08)
+- Avoid denial-of-service via version check (GHSA-q4f2-39gr-45jh, regression from 4.6.2)
+- Pretty print JSON in edit
+- Support multiline generated values in alter table
+- Link //domain.tld values
+- Improve print of nested tables
+- Hide sort links on unsortable columns
+- Display uneditable fields in edit form
+- Shorten all but numeric and date types in select
+- Fix escaping spaces in cookie value (bug #1208)
+- Don't quote comma in TSV export (bug #1238)
+- Autocomplete: fix in empty textarea (bug #1173)
+- Prolong printed SQL query to 10000 characters (bug #1186)
+- MySQL: Use information_schema to get routine definition (bug #1179, SF-711)
+- MariaDB: Don't display checks with the same name from another table (bug #1135)
+- PostgreSQL: Offer foreign keys in create table
+- PostgreSQL: Add missing parentheses to CHECK export
+- PostgreSQL: Allow creating NOT DEFERRABLE foreign keys
+- PostgreSQL: Remove duplicate DEFERRABLE in foreign key export
+- PostgreSQL: Add schema to sequence and view export
+- PostgreSQL: Fix definition of complex generated columns
+- PostgreSQL: Mark unique partial indexes as unique (bug #1172)
+- PostgreSQL: Fix namespace in inheritance links (bug #1221)
+- non-PostgreSQL: Display NOT NULL checks (bug #1237)
+- ClickHouse: Fix offset (bug #1188)
+- ClickHouse: Fix list of tables (bug #1176)
+- Plugins: Methods showVariables() and showStatus() (bug #1157)
+- Plugins: Allow to be in any namespace
+- New plugin: IGDB driver
+
+## Adminer 5.4.1 (released 2025-09-26)
+- SQL command: Unlink NULL primary keys
+- Do not quote 0 in CSV export
+- Warn about exceeded upload_max_filesize in imports
+- Prolong queries saved from SQL command to URL (bug #1154)
+- MySQL: Fix displaying routine definition (bug #1156, regression from 5.4.0)
+
+## Adminer 5.4.0 (released 2025-09-08)
 - Allow specifying operator in search anywhere
+- Do not order descending in GROUP BY select
+- Allow exporting SQL in SQL command (bug #1092)
+- Add section links in database overview
 - Warn about exceeded max_file_uploads in import
+- Display @ after username without server in existing logins
+- Display data length and index length for materialized views
+- Link routines from syntax highlighting
+- Autofocus added field in alter table
+- Executed SQL commands: Add button for copy to clipboard
+- Load more: run syntax highlighter
+- Allow connecting to IPv6 (bug #1095)
+- MySQL: Fix saving empty enum (bug #1152)
 - MySQL 5.0-: Do not load partitioning info in alter table (bug #1099)
+- MariaDB: Parse COLLATE in routine definition (bug #1104)
 - PostgreSQL: Show structure of inherited tables
+- PostgreSQL: Display index expressions
+- PostgreSQL: Add SQL operator to select
 - PostgreSQL: Hide only partitions, not all inherited tables from menu
-- PostgreSQL 11-: Avoid duplicate oid in table status (bug #1089)
-- Plugins: Methods processList() and killProcess()
+- PostgreSQL: Allow comparing json columns (bug #1107)
+- PostgreSQL: Shorten values in hstore columns
+- PostgreSQL: Quote edit value with interval operator
+- PostgreSQL: Fix calling functions with name-less parameters
+- PostgreSQL: Fix calling functions returing table
+- PostgreSQL: Don't treat user types containing 'file' as blobs (bug #1118)
+- PostgreSQL: Export DROP and CREATE DATABASE (bug #1140)
+- PostgreSQL 11-: Avoid duplicate oid in table status (bug #1089, regression from 5.3.0)
+- Elasticsearch: Support dropping aliases
+- Plugins: Methods afterConnect(), processList() and killProcess()
+- New plugin: Display row numbers in select (bug #1106)
+- New plugin: Specify query timeout
 
 ## Adminer 5.3.0 (released 2025-05-04)
 - Align numeric functions right
@@ -125,8 +263,8 @@
 - MariaDB: Fix creating and altering generated columns (bug #897)
 - PostgreSQL: Fix "where" and "order" privileges (bug #902, regression from 5.0.2)
 - SQLite: Fix creating table in compiled version (bug #901, regression from 5.0.0)
-- Elastic: Do not pass null values on insert (PR #892)
-- Elastic: Fix displaying sparse rows (PR #893)
+- Elasticsearch: Do not pass null values on insert (PR #892)
+- Elasticsearch: Fix displaying sparse rows (PR #893)
 - Plugins: Add method dumpFooter()
 
 ## Adminer 5.0.2 (released 2025-03-10)
@@ -207,6 +345,7 @@
 - SQLite: Fix expressions in default values (bug SF-860)
 - MS SQL: Foreign keys in non-default schema (bug SF-833)
 - Oracle: Include tables granted by other user
+- Elasticsearch: Move to plugin
 - MongoDB: Execute commands against the selected DB
 
 ## Adminer 4.15.0

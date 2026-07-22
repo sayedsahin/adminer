@@ -26,7 +26,7 @@ if (isset($_GET["mssql"])) {
 				$this->error = rtrim($this->error);
 			}
 
-			function attach(?string $server, string $username, string $password): string {
+			function attach(string $server, string $username, string $password): string {
 				$connection_info = array("UID" => $username, "PWD" => $password, "CharacterSet" => "UTF-8");
 				$ssl = adminer()->connectSsl();
 				if (isset($ssl["Encrypt"])) {
@@ -39,7 +39,8 @@ if (isset($_GET["mssql"])) {
 				if ($db != "") {
 					$connection_info["Database"] = $db;
 				}
-				$this->link = @sqlsrv_connect(preg_replace('~:~', ',', $server), $connection_info);
+				list($host, $port) = host_port($server);
+				$this->link = @sqlsrv_connect($host . ($port ? ",$port" : ""), $connection_info);
 				if ($this->link) {
 					$info = sqlsrv_server_info($this->link);
 					$this->server_info = $info['SQLServerVersion'];
@@ -141,10 +142,6 @@ if (isset($_GET["mssql"])) {
 					sqlsrv_fetch($this->result); // SQLSRV_SCROLL_ABSOLUTE added in sqlsrv 1.1
 				}
 			}
-
-			function __destruct() {
-				sqlsrv_free_stmt($this->result);
-			}
 		}
 
 		function last_id($result) {
@@ -181,8 +178,9 @@ if (isset($_GET["mssql"])) {
 			class Db extends MssqlDb {
 				public $extension = "PDO_SQLSRV";
 
-				function attach(?string $server, string $username, string $password): string {
-					return $this->dsn("sqlsrv:Server=" . str_replace(":", ",", $server), $username, $password);
+				function attach(string $server, string $username, string $password): string {
+					list($host, $port) = host_port($server);
+					return $this->dsn("sqlsrv:Server=$host" . ($port ? ",$port" : ""), $username, $password);
 				}
 			}
 
@@ -190,8 +188,9 @@ if (isset($_GET["mssql"])) {
 			class Db extends MssqlDb {
 				public $extension = "PDO_DBLIB";
 
-				function attach(?string $server, string $username, string $password): string {
-					return $this->dsn("dblib:charset=utf8;host=" . str_replace(":", ";unix_socket=", preg_replace('~:(\d)~', ';port=\1', $server)), $username, $password);
+				function attach(string $server, string $username, string $password): string {
+					list($host, $port) = host_port($server);
+					return $this->dsn("dblib:charset=utf8;host=$host" . ($port ? (is_numeric($port) ? ";port=" : ";unix_socket=") . $port : ""), $username, $password);
 				}
 			}
 		}
@@ -214,7 +213,7 @@ if (isset($_GET["mssql"])) {
 		public $generated = array("PERSISTED", "VIRTUAL");
 		public $onActions = "NO ACTION|CASCADE|SET NULL|SET DEFAULT";
 
-		static function connect(?string $server, string $username, string $password) {
+		static function connect(string $server, string $username, string $password) {
 			if ($server == "") {
 				$server = "localhost:1433";
 			}
@@ -333,7 +332,7 @@ if (isset($_GET["mssql"])) {
 	function table_status($name = "") {
 		$return = array();
 		foreach (
-			get_rows("SELECT ao.name AS Name, ao.type_desc AS Engine, (SELECT value FROM fn_listextendedproperty(default, 'SCHEMA', schema_name(schema_id), 'TABLE', ao.name, null, null)) AS Comment
+			get_rows("SELECT ao.name AS Name, ao.type_desc AS Engine, (SELECT cast(value as varchar(max)) FROM fn_listextendedproperty(default, 'SCHEMA', schema_name(schema_id), 'TABLE', ao.name, null, null)) AS Comment
 FROM sys.all_objects AS ao
 WHERE schema_id = SCHEMA_ID(" . q(get_schema()) . ") AND type IN ('S', 'U', 'V') " . ($name != "" ? "AND name = " . q($name) : "ORDER BY name")) as $row
 		) {
@@ -678,7 +677,7 @@ WHERE sys1.xtype = 'TR' AND sys2.name = " . q($table)) as $row
 		return "TRUNCATE TABLE " . table($table);
 	}
 
-	function use_sql($database) {
+	function use_sql($database, $style = "") {
 		return "USE " . idf_escape($database);
 	}
 
